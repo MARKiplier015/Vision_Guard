@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vision Guard: 3in1 Pharmacy</title>
+    <link rel="stylesheet" href="styles.css"/>
+  </head>
+  <body>
+    <header class="header">
+      <nav class="navbar">
+        <h2 class="logo"><a href="#">Vision Guard</a></h2>
+        <input type="checkbox" id="menu-toggle" />
+        <label for="menu-toggle" id="hamburger-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">
+                <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+        </label>
+        <ul class="links">
+          <li><a href="home.html">Home</a></li>
+          <li><a href="camera.html">Camera Feed</a></li>
+          <li><a href="dev.html">Developers</a></li>
+        </ul>
+      </nav>
+    </header>
+    <div
+      style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center;"
+    >
+      <h1 style="color: white;">Vision Guard - Face Visibility Detection</h1>
+      <br>
+      <div id="webcam-container">
+        Loading Camera...
+      </div>
+      <br>
+      <button type="button" id="start-button" onclick="toggleWebcam()">
+        Capture
+      </button>
+      <div id="text-labels">
+      <div id="label-container"></div>
+      <div id="warning-container"></div>
+    </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script type="text/javascript">
+      const URL = "https://teachablemachine.withgoogle.com/models/j2Hu5oazy/";
+      let model, webcam, labelContainer, maxPredictions;
+      let started = false;
+      let confidenceTracker = {};
+      const validationTime = 2000;
+
+
+      const audioFiles = {
+        "CAP": new Audio("audio/caps.mp3"),
+        "MASK": new Audio("audio/mask.mp3"),
+        "HELMET": new Audio("audio/helmet.mp3"),
+        "HOODIE": new Audio("audio/hoodie.mp3"),
+        "SHADES": new Audio("audio/shades.mp3"),
+        "BALACLAVA": new Audio("audio/balaclava.mp3"),
+      };
+
+
+      let isAudioPlaying = false;
+
+
+      async function toggleWebcam() {
+        const button = document.getElementById("start-button");
+        if (!started) {
+          await init();
+          button.textContent = "Stop";
+        } else {
+          stopWebcam();
+          button.textContent = "Start";
+        }
+        started = !started;
+      }
+
+
+      async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+
+
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+
+        webcam = new tmImage.Webcam(335, 335, true);
+        await webcam.setup();
+        await webcam.play();
+        window.requestAnimationFrame(loop);
+
+
+        const webcamContainer = document.getElementById("webcam-container");
+        webcamContainer.innerHTML = "";
+        webcamContainer.appendChild(webcam.canvas);
+        labelContainer = document.getElementById("label-container");
+        labelContainer.innerHTML = "";
+      }
+
+
+      function stopWebcam() {
+        if (webcam) {
+          webcam.stop();
+          document.getElementById("webcam-container").innerHTML = "Loading Camera...";
+        }
+      }
+
+
+      async function loop() {
+        if (started) {
+          webcam.update();
+          await predict();
+          window.requestAnimationFrame(loop);
+        }
+      }
+
+
+      async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+        labelContainer.innerHTML = "";
+
+
+        let highestPrediction = prediction.reduce((prev, current) =>
+          prev.probability > current.probability ? prev : current
+        );
+
+
+        if (highestPrediction.probability.toFixed(2) > 0.0) {
+          const classPrediction =
+            highestPrediction.className + ": " + (highestPrediction.probability * 100).toFixed(0) + "%";
+          const div = document.createElement("div");
+          div.innerHTML = classPrediction;
+          labelContainer.appendChild(div);
+
+
+          if (highestPrediction.className === "NO FACE OBSTRUCTION") {
+            document.getElementById("warning-container").innerHTML = "";
+            confidenceTracker = {};
+            return;
+          }
+
+
+          if (highestPrediction.probability >= 0.8) {
+            if (!confidenceTracker[highestPrediction.className]) {
+              confidenceTracker[highestPrediction.className] = Date.now();
+            }
+
+
+            let elapsed = Date.now() - confidenceTracker[highestPrediction.className];
+            if (elapsed >= validationTime && !isAudioPlaying) {
+              isAudioPlaying = true;
+              audioFiles[highestPrediction.className]?.play();
+              document.getElementById("warning-container").innerHTML = `${highestPrediction.className}
+              is not allowed. Please remove it.`;
+              setTimeout(() => {
+                isAudioPlaying = false;
+              }, 5000);
+            }
+          } else {
+            delete confidenceTracker[highestPrediction.className];
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
